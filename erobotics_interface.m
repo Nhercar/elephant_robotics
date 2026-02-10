@@ -1,49 +1,68 @@
 classdef erobotics_interface < handle
-    % EROBOTICS_INTERFACE - Controlador Principal
-    % Coordina la conexión ROS 2, el cliente de trayectorias y el monitor.
-    % Usa 'robot_config' para los parámetros y 'tf_monitor' para la visualización.
-
+    % EROBOTICS_INTERFACE - Driver Hardware ROS 2
+    % Gestiona:
+    % 1. Cliente de Acción (Enviar movimientos)
+    % 2. Monitor TF (Leer posición Cartesiana)
+    % 3. Suscriptor JointStates (Leer ángulos reales para planificación)
+    
     properties
-        Node           % Nodo de ROS 2
-        ActionClient   % Cliente de MoveIt
-        Monitor        % Instancia de nuestra librería tf_monitor
+        Node
+        ActionClient
+        Monitor       % tf_monitor (Cartesiano)
+        JointSub      % Suscriptor a /joint_states
+        CurrentJoints % Última configuración leída [1x6]
     end
     
     methods
         function obj = erobotics_interface()
-            % 1. Cargar Configuración de Entorno
-            fprintf(' Cargando configuración...\n');
+            fprintf('--- Iniciando Hardware MyCobot ---\n');
+            
+            % Configuración de Entorno
             setenv('ROS_DOMAIN_ID', robot_config.DomainID);
             setenv('RMW_IMPLEMENTATION', robot_config.RMW_Implementation);
             
             try
-                % 2. Crear Nodo ROS 2
-                obj.Node = ros2node(robot_config.NodeName, str2double(robot_config.DomainID));
-                 fprintf('obj.node iniciado \n');
+                obj.Node = ros2node(robot_config.NodeName);
                 
-                % 3. Inicializar Componentes Auxiliares
-                % -> Monitor TF (Delegamos la lógica compleja a la otra clase)
+                % 1. Monitor TF (Visualización Cartesiana)
                 obj.Monitor = tf_monitor(obj.Node, robot_config.BaseFrame, robot_config.LinkFrames);
-                fprintf('obj.Monitor iniciado \n');
-                % -> Cliente de Acción (MoveIt)
+                
+                % 2. Suscriptor de Estado (Para Planificación)
+                obj.CurrentJoints = zeros(1, 6); % Valor por defecto
+                obj.JointSub = ros2subscriber(obj.Node, "/joint_states", ...
+                    "sensor_msgs/JointState", @obj.jointStateCallback);
+                
+                % 3. Cliente de Acción (Movimiento)
                 obj.inicializarClienteAccion();
-                 fprintf('obj.Inizializer iniciado');
                 
             catch ME
-                fprintf(' Error CRÍTICO al iniciar: %s\n', ME.message);
+                fprintf('\n ERROR CRÍTICO: %s\n', ME.message);
                 delete(obj);
             end
         end
         
+        function jointStateCallback(obj, msg)
+            % Guarda los ángulos actuales del robot real
+            % Aseguramos que el orden coincida (simple mapeo directo por ahora)
+            if numel(msg.position) >= 6
+                % ROS envía radianes, guardamos radianes para consistencia interna
+                obj.CurrentJoints = msg.position(1:6)'; 
+            end
+        end
+        
+        function config = obtenerConfiguracionActual(obj)
+            % Devuelve el estado actual para que el Planificador lo use como inicio
+            config = obj.CurrentJoints;
+        end
+        
         function moverRobot(obj, angulos_grad, tiempo_seg)
-            % API Pública: Mover el robot
+            % Envío de trayectoria al Action Server
             if length(angulos_grad) ~= 6
-                error(' Se requieren 6 ángulos en grados.');
+                error('Se requieren 6 ángulos en grados.');
             end
             
-            fprintf(' Enviando trayectoria... Destino: [%s]\n', num2str(angulos_grad));
+            fprintf(' Enviando trayectoria... Destino: [%s]\n', num2str(angulos_grad, '%.1f '));
             
-            % Construcción del mensaje usando constantes de robot_config
             goalMsg = ros2message(obj.ActionClient);
             goalMsg.trajectory.joint_names = robot_config.JointNames;
             
@@ -52,7 +71,6 @@ classdef erobotics_interface < handle
             point.velocities = zeros(1, 6);
             point.accelerations = zeros(1, 6);
             
-            % Cálculo de tiempo
             sec = floor(tiempo_seg);
             nsec = floor((tiempo_seg - sec) * 1e9);
             point.time_from_start.sec = int32(sec);
@@ -60,51 +78,44 @@ classdef erobotics_interface < handle
             
             goalMsg.trajectory.points = point;
             
-            % Envío Bloqueante
             try
                 result = sendGoal(obj.ActionClient, goalMsg);
                 if result.error_code == 0
-                    fprintf(' -> Movimiento EXITOSO.\n');
+                    fprintf(' -> ÉXITO: Movimiento completado.\n');
                 else
-                    fprintf(' -> ERROR del Robot. Código: %d\n', result.error_code);
+                    fprintf(' -> ERROR ROBOT: Código %d\n', result.error_code);
                 end
             catch ME
-                fprintf(' -> Fallo al enviar meta: %s\n', ME.message);
+                fprintf(' -> ERROR MATLAB: %s\n', ME.message);
             end
         end
         
         function verDatos(obj, activar)
-            % Activa o desactiva el monitor de pantalla
             if nargin < 2 || activar
-                obj.Monitor.iniciar(1.0); % 1 Hz
+                obj.Monitor.iniciar(0.5); % Refresco visual 0.5s
             else
                 obj.Monitor.detener();
             end
         end
         
         function delete(obj)
-            % Limpieza ordenada
             if ~isempty(obj.Monitor), delete(obj.Monitor); end
             obj.ActionClient = [];
             obj.Node = [];
-            fprintf(' Sistema desconectado.\n');
+            fprintf(' Hardware desconectado.\n');
         end
     end
     
     methods (Access = private)
         function inicializarClienteAccion(obj)
-            fprintf(' Conectando con el controlador del robot (%s)...\n', robot_config.ActionTopic);
             obj.ActionClient = ros2actionclient(obj.Node, ...
                 robot_config.ActionTopic, ...
                 robot_config.ActionType);
             
-            if waitForServer(obj.ActionClient, "Timeout", 5)
-                fprintf(' ¡Conexión establecida con el Robot!\n');
-                fprintf(' Comandos disponibles:\n');
-                fprintf('  >> robot.moverRobot([0,0,0,0,0,0], 2)\n');
-                fprintf('  >> robot.verDatos(true)\n');
+            if waitForServer(obj.ActionClient, "Timeout", 2)
+                fprintf(' ¡CONEXIÓN ESTABLECIDA con el Robot!\n');
             else
-                warning(' Servidor de acción no encontrado. Verifica tu Docker.');
+                warning(' Servidor de acción no encontrado en Docker (Modo solo lectura).');
             end
         end
     end
