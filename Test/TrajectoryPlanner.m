@@ -44,11 +44,15 @@ classdef TrajectoryPlanner < handle
             
             waypoints = [startConfig(:), endConfig(:)]; 
             [qMatrixT, ~, ~] = quinticpolytraj(waypoints, [0, tiempoTotal], t);
+
+            qMatrix = qMatrixT';
             
             % C. Visualizar (Opcional, para debug)
             for i = 1:steps
                 obj.actualizarVisualizacion(qMatrix(i,:));
             end
+
+            qMatrix = rad2deg(qMatrix);
         end
         
         %% 2. PLANIFICACIÓN CARTESIANA (Línea Recta)
@@ -81,13 +85,12 @@ classdef TrajectoryPlanner < handle
             for i = 1:steps
                 obj.actualizarVisualizacion(qMatrix(i,:));
             end
+
+            qMatrix = rad2deg(qMatrix);
         end
 
-
-        function configRow = vectorToRow(jointVector)
-            % Convierte cualquier entrada a vector fila [1x6]
-            % DataFormat 'row' exige vectores fila, no columnas ni estructuras.
-            configRow = jointVector(:)';
+        function sincronizarConHardware(obj)
+            obj.actualizarVisualizacion(obj.Model.CurrentJoints)
         end
     end
 end

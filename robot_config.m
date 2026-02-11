@@ -7,7 +7,7 @@ classdef robot_config
         % --- Configuración de Red ROS 2 ---
         DomainID = '0'
         RMW_Implementation = 'rmw_fastrtps_cpp'
-        NodeName = '/matlab_erobotics_client'
+        NodeName = '/matlab_action_client'
         
         % --- Configuración del Servidor de Acción (MoveIt) ---
         ActionTopic = '/arm_controller/follow_joint_trajectory'

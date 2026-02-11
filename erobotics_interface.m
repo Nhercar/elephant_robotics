@@ -97,6 +97,10 @@ classdef erobotics_interface < handle
         function irAHome(obj)
             obj.moverRobot([0 0 0 0 0 45], 3);
         end
+
+        function ejecutarTrayectoria(obj, qMatrix, tiempoTotal)
+            obj.moverRobot(qMatrix(end,:),tiempoTotal)
+        end
     end
     
     methods (Access = private)
@@ -112,8 +116,8 @@ classdef erobotics_interface < handle
                 warning(' Servidor de acción no encontrado.');
             end
         end
-
-                %% Función no implementada en la interfaz.
+        
+        %% Función no implementada en la interfaz.
         % function ejecutarTrayectoria(obj, qMatrix, tiempoTotal)
         % % EJECUTARTRAYECTORIA Recibe una matriz [6 x N] y la envía punto a punto
         % % qMatrix: Matriz de radianes [6 filas x N columnas]

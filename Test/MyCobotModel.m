@@ -51,17 +51,17 @@ classdef MyCobotModel < handle
 
             obj.JointSub = ros2subscriber(obj.Node, "/joint_states", ...
                     "sensor_msgs/JointState", @obj.jointStateCallback);
+
         end
         
         function [configSol, info] = calcularIK(obj, targetPose, initialGuess)
-            weights = [1 1 1 1 1 1]; 
+            weights = [1 1 1 0.1 0.1 0.1]; 
             if nargin < 3, initialGuess = obj.HomeConfig; end
             [configSol, info] = obj.IKSolver(obj.EndEffector, targetPose, weights, initialGuess);
         end
         
-        function visualizar(obj, config)
-            if nargin < 2, config = obj.HomeConfig; end % Si no introducimos posción, visualizamos en home
-            show(obj.RobotTree, config, 'PreservePlot', false, 'Collisions', 'off');
+        function visualizar(obj)
+            show(obj.RobotTree, obj.CurrentJoints, 'PreservePlot', false, 'Collisions', 'off');
             grid on; axis equal;
             title('Visualización en Tiempo Real');
         end
@@ -78,7 +78,6 @@ classdef MyCobotModel < handle
                 % ROS2 envía radianes, guardamos radianes para consistencia interna
                 obj.CurrentJoints = msg.position(1:6)'; 
             end
-            %obj.visualizar(obj.CurrentJoints);
         end
     end
 end
