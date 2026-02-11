@@ -56,7 +56,8 @@ classdef erobotics_interface < handle
         end
         
         function moverRobot(obj, angulos_grad, tiempo_seg)
-            % Envío de trayectoria al Action Server
+            % Envío de trayectoria al Action Server. Mismo mensaje que
+            % genera Moveit2
             if length(angulos_grad) ~= 6
                 error('Se requieren 6 ángulos en grados.');
             end
@@ -79,24 +80,12 @@ classdef erobotics_interface < handle
             goalMsg.trajectory.points = point;
             
             try
-                result = sendGoal(obj.ActionClient, goalMsg);
-                if result.error_code == 0
-                    fprintf(' -> ÉXITO: Movimiento completado.\n');
-                else
-                    fprintf(' -> ERROR ROBOT: Código %d\n', result.error_code);
-                end
+                sendGoal(obj.ActionClient, goalMsg);
             catch ME
                 fprintf(' -> ERROR MATLAB: %s\n', ME.message);
             end
         end
         
-        function verDatos(obj, activar)
-            if nargin < 2 || activar
-                obj.Monitor.iniciar(0.5); % Refresco visual 0.5s
-            else
-                obj.Monitor.detener();
-            end
-        end
         
         function delete(obj)
             if ~isempty(obj.Monitor), delete(obj.Monitor); end
@@ -107,6 +96,7 @@ classdef erobotics_interface < handle
     end
     
     methods (Access = private)
+        %% Creamos el cliente de Acciones para enviar trayectorias
         function inicializarClienteAccion(obj)
             obj.ActionClient = ros2actionclient(obj.Node, ...
                 robot_config.ActionTopic, ...
@@ -115,8 +105,48 @@ classdef erobotics_interface < handle
             if waitForServer(obj.ActionClient, "Timeout", 2)
                 fprintf(' ¡CONEXIÓN ESTABLECIDA con el Robot!\n');
             else
-                warning(' Servidor de acción no encontrado en Docker (Modo solo lectura).');
+                warning(' Servidor de acción no encontrado.');
             end
         end
+
+                %% Función no implementada en la interfaz.
+        % function ejecutarTrayectoria(obj, qMatrix, tiempoTotal)
+        % % EJECUTARTRAYECTORIA Recibe una matriz [6 x N] y la envía punto a punto
+        % % qMatrix: Matriz de radianes [6 filas x N columnas]
+        % % tiempoTotal: Tiempo en segundos que debe durar todo el movimiento
+        % 
+        % [~, numPasos] = size(qMatrix);
+        % 
+        % % Calculamos cuánto debe durar cada "mini-movimiento"
+        % dt = tiempoTotal / numPasos; 
+        % 
+        % % Bucle de ejecución temporal
+        % for i = 1:numPasos
+        %     tic; % Iniciar cronómetro
+        % 
+        %     % 1. Extraer configuración actual (vector columna)
+        %     qTargetRad = qMatrix(:, i);
+        % 
+        %     % 2. Convertir a grados (si tu hardware lo requiere)
+        %     qTargetDeg = rad2deg(qTargetRad);
+        % 
+        %     % 3. ENVIAR AL ROBOT
+        %     % Usamos moverRobot con el tiempo pequeño 'dt'
+        %     % Esto le dice al robot: "Ve a este punto y tarda dt segundos"
+        %     obj.moverRobot(qTargetDeg, dt);
+        % 
+        %     % 4. Esperar para mantener el ritmo (Sincronización)
+        %     tLoop = toc;
+        %     pauseTime = dt - tLoop;
+        %     if pauseTime > 0
+        %         pause(pauseTime);
+        %     else
+        %         % Si el bucle es lento, no pausamos (warning opcional)
+        %     end
+        % end
+        % 
+        % fprintf('Trayectoria finalizada.\n');
+        % end
+
     end
 end

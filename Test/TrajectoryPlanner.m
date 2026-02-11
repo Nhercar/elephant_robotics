@@ -1,103 +1,80 @@
 classdef TrajectoryPlanner < handle
-    % TRAJECTORYPLANNER - Planificación inteligente
+    % TRAJECTORYPLANNER - Solo Matemáticas y Visualización de trayectorias
+    % Clase encargada de:
+    % -- Generar matrices de puntos (waypoints) en articulares y en el
+    %    espacio de la tarea
+    % -- Visualizar las trayectorias
     
     properties
         Model       % MyCobotModel
-        Hardware    % erobotics_interface
-        VizFig      % Figura
+        VizFig      % Figura para debugging visual
     end
     
     methods
-        function obj = TrajectoryPlanner(hardware, model)
-            obj.Hardware = hardware;
+        function obj = TrajectoryPlanner(model)
             obj.Model = model;
-            
-            obj.VizFig = figure('Name', 'Planificador MyCobot', 'Color', 'w');
-            
-            % Sincronización inicial
-            obj.sincronizarConHardware();
-            view(3);
+            obj.VizFig = figure('Name', 'Planificador', 'Color', 'w');
+            view(3); grid on;
         end
         
-        function sincronizarConHardware(obj)
-            % Lee el hardware y actualiza el gráfico
-            if ~isempty(obj.Hardware)
-                qReal = obj.Hardware.obtenerConfiguracionActual();
-                configReal = obj.Model.vectorToConfig(qReal);
-                
-                figure(obj.VizFig);
-                obj.Model.visualizar(configReal);
-                drawnow;
-            end
-        end
-        
-        function moverCartesiano(obj, x, y, z, roll, pitch, yaw, tiempoTotal)
-            fprintf('Planificando ruta a: [%.2f %.2f %.2f]...\n', x, y, z);
-            
-            % 1. Obtener PUNTO DE PARTIDA REAL
-            if ~isempty(obj.Hardware)
-                qCurrent = obj.Hardware.obtenerConfiguracionActual();
-                startConfig = obj.Model.vectorToConfig(qCurrent);
-            else
-                startConfig = obj.Model.HomeConfig;
-            end
-            
-            % 2. Definir META
-            targetTform = trvec2tform([x, y, z]) * eul2tform([yaw, pitch, roll]);
-            
-            % Dibujar meta
+        function actualizarVisualizacion(obj, qConfig)
+            % Método auxiliar para actualizar la figura
             figure(obj.VizFig);
-            %plotTransforms(targetTform, 'FrameSize', 0.1);
+            obj.Model.visualizarTrayectoria(qConfig);
+            drawnow limitrate;
+        end
+        
+        %% 1. PLANIFICACIÓN ARTICULAR
+        % Devuelve: qMatrix [6 x N] (radianes)
+        function qMatrix = planificarArticular(obj, startConfig, x, y, z, roll, pitch, yaw, tiempoTotal)
             
-            % 3. Calcular IK (Cinemática Inversa)
+            % A. Calcular Meta
+            targetTform = trvec2tform([x, y, z]) * eul2tform([yaw, pitch, roll]);
             [endConfig, info] = obj.Model.calcularIK(targetTform, startConfig);
             
             if info.Status ~= "success"
-                warning('Solución IK aproximada (Error: %.4f)', info.PoseErrorNorm);
+                warning('IK aproximada: Error %.4f', info.PoseErrorNorm);
             end
             
-            % 4. Ejecutar Interpolación
-            obj.ejecutarTrayectoria(startConfig, endConfig, tiempoTotal);
-        end
-        
-        function ejecutarTrayectoria(obj, startConfStruct, endConfStruct, tiempoTotal)
-            % Convierte structs a vectores para interpolar
-            qStart = startConfStruct';
-            qEnd = endConfStruct';
-            
-            steps = 50;
+            % B. Interpolar (Generar Matriz)
+            steps = 50; % Número de puntos
             t = linspace(0, tiempoTotal, steps);
             
-            % Interpolación Polinómica (Suave)
-            [qMatrix, ~, ~] = quinticpolytraj([qStart; qEnd]', [0, tiempoTotal], t);
+            waypoints = [startConfig(:), endConfig(:)]; 
+            [qMatrix, ~, ~] = quinticpolytraj(waypoints, [0, tiempoTotal], t);
             
-            % Animación previa
-            figure(obj.VizFig);
+            % C. Visualizar (Opcional, para debug)
             for i = 1:steps
-                % Reconstruir struct para 'show'
-                config = obj.Model.vectorToConfig(qMatrix(:,i));
-                show(obj.Model.RobotTree, config, 'Parent', gca, 'PreservePlot', false, 'Collisions', 'off');
-                drawnow limitrate;
-            end
-            
-            % Envío al Hardware
-            qFinalDeg = rad2deg(qEnd);
-            if ~isempty(obj.Hardware)
-                obj.Hardware.moverRobot(qFinalDeg, tiempoTotal);
+                obj.actualizarVisualizacion(obj.Model.vectorToConfig(qMatrix(:,i)));
             end
         end
         
-        function irAHome(obj)
-            % Wrapper simple para ir a casa
-            if ~isempty(obj.Hardware)
-                qCurrent = obj.Hardware.obtenerConfiguracionActual();
-                startConf = obj.Model.vectorToConfig(qCurrent);
-            else
-                startConf = obj.Model.HomeConfig;
+        %% 2. PLANIFICACIÓN CARTESIANA (Línea Recta)
+        % Devuelve: qMatrix [6 x N] (radianes)
+        function qMatrix = planificarCartesiano(obj, startConfig, x, y, z, roll, pitch, yaw, tiempoTotal)
+            
+            tformStart = getTransform(obj.Model.RobotTree, startConfig, obj.Model.EndEffector);
+            tformEnd = trvec2tform([x, y, z]) * eul2tform([yaw, pitch, roll]);
+            
+            % A. Generar camino en 3D
+            steps = 50;
+            tSamples = linspace(0, tiempoTotal, steps);
+            [tformsWaypoints, ~, ~] = transformtraj(tformStart, tformEnd, [0, tiempoTotal], tSamples);
+            
+            % B. Resolver IK para cada punto
+            qMatrix = zeros(6, steps);
+            lastConfig = startConfig; 
+            
+            for i = 1:steps
+                [configSol, ~] = obj.Model.calcularIK(tformsWaypoints(:,:,i), lastConfig);
+                qMatrix(:, i) = configSol(:);
+                lastConfig = configSol;
             end
             
-            endConf = obj.Model.HomeConfig;
-            obj.ejecutarTrayectoria(startConf, endConf, 3.0);
+            % C. Visualizar
+            for i = 1:steps
+                obj.actualizarVisualizacion(obj.Model.vectorToConfig(qMatrix(:,i)));
+            end
         end
     end
 end
