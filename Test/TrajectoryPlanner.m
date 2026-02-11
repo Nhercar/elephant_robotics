@@ -26,7 +26,9 @@ classdef TrajectoryPlanner < handle
         
         %% 1. PLANIFICACIÓN ARTICULAR
         % Devuelve: qMatrix [6 x N] (radianes)
-        function qMatrix = planificarArticular(obj, startConfig, x, y, z, roll, pitch, yaw, tiempoTotal)
+        function qMatrix = planificarArticular(obj, x, y, z, roll, pitch, yaw, tiempoTotal)
+
+            startConfig = obj.Model.CurrentJoints; % Obtener configuración inicial
             
             % A. Calcular Meta
             targetTform = trvec2tform([x, y, z]) * eul2tform([yaw, pitch, roll]);
@@ -37,44 +39,55 @@ classdef TrajectoryPlanner < handle
             end
             
             % B. Interpolar (Generar Matriz)
-            steps = 50; % Número de puntos
+            steps = 10; % Número de puntos
             t = linspace(0, tiempoTotal, steps);
             
             waypoints = [startConfig(:), endConfig(:)]; 
-            [qMatrix, ~, ~] = quinticpolytraj(waypoints, [0, tiempoTotal], t);
+            [qMatrixT, ~, ~] = quinticpolytraj(waypoints, [0, tiempoTotal], t);
             
             % C. Visualizar (Opcional, para debug)
             for i = 1:steps
-                obj.actualizarVisualizacion(obj.Model.vectorToConfig(qMatrix(:,i)));
+                obj.actualizarVisualizacion(qMatrix(i,:));
             end
         end
         
         %% 2. PLANIFICACIÓN CARTESIANA (Línea Recta)
         % Devuelve: qMatrix [6 x N] (radianes)
-        function qMatrix = planificarCartesiano(obj, startConfig, x, y, z, roll, pitch, yaw, tiempoTotal)
+        function qMatrix = planificarCartesiano(obj, x, y, z, roll, pitch, yaw, tiempoTotal)
+            
+            startConfig = obj.Model.CurrentJoints;
             
             tformStart = getTransform(obj.Model.RobotTree, startConfig, obj.Model.EndEffector);
             tformEnd = trvec2tform([x, y, z]) * eul2tform([yaw, pitch, roll]);
             
             % A. Generar camino en 3D
-            steps = 50;
+            steps = 10;
             tSamples = linspace(0, tiempoTotal, steps);
             [tformsWaypoints, ~, ~] = transformtraj(tformStart, tformEnd, [0, tiempoTotal], tSamples);
             
             % B. Resolver IK para cada punto
-            qMatrix = zeros(6, steps);
+            qMatrixT = zeros(6, steps);
+            
             lastConfig = startConfig; 
             
             for i = 1:steps
                 [configSol, ~] = obj.Model.calcularIK(tformsWaypoints(:,:,i), lastConfig);
-                qMatrix(:, i) = configSol(:);
+                qMatrixT(:, i) = configSol(:);
                 lastConfig = configSol;
             end
             
+            qMatrix = qMatrixT';
             % C. Visualizar
             for i = 1:steps
-                obj.actualizarVisualizacion(obj.Model.vectorToConfig(qMatrix(:,i)));
+                obj.actualizarVisualizacion(qMatrix(i,:));
             end
+        end
+
+
+        function configRow = vectorToRow(jointVector)
+            % Convierte cualquier entrada a vector fila [1x6]
+            % DataFormat 'row' exige vectores fila, no columnas ni estructuras.
+            configRow = jointVector(:)';
         end
     end
 end

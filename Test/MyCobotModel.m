@@ -59,12 +59,6 @@ classdef MyCobotModel < handle
             [configSol, info] = obj.IKSolver(obj.EndEffector, targetPose, weights, initialGuess);
         end
         
-        function configRow = vectorToRow(jointVector)
-            % Convierte cualquier entrada a vector fila [1x6]
-            % DataFormat 'row' exige vectores fila, no columnas ni estructuras.
-            configRow = jointVector(:)';
-        end
-        
         function visualizar(obj, config)
             if nargin < 2, config = obj.HomeConfig; end % Si no introducimos posción, visualizamos en home
             show(obj.RobotTree, config, 'PreservePlot', false, 'Collisions', 'off');
@@ -84,7 +78,7 @@ classdef MyCobotModel < handle
                 % ROS2 envía radianes, guardamos radianes para consistencia interna
                 obj.CurrentJoints = msg.position(1:6)'; 
             end
-            obj.visualizar(obj.CurrentJoints);
+            %obj.visualizar(obj.CurrentJoints);
         end
     end
 end

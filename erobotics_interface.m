@@ -93,6 +93,10 @@ classdef erobotics_interface < handle
             obj.Node = [];
             fprintf(' Hardware desconectado.\n');
         end
+
+        function irAHome(obj)
+            obj.moverRobot([0 0 0 0 0 45], 3);
+        end
     end
     
     methods (Access = private)
